@@ -1,0 +1,106 @@
+# ===========================
+# Python
+# ===========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+*.egg
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ===========================
+# Virtual Environments
+# ===========================
+.venv/
+venv/
+ENV/
+env/
+.conda/
+
+# ===========================
+# Jupyter Notebook
+# ===========================
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ===========================
+# IDE / Editor
+# ===========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===========================
+# Training Outputs (YOLO)
+# ===========================
+runs/
+
+# ===========================
+# Raw Datasets (large files)
+# ===========================
+dataset_normalisasi_fix/
+raw dataset/
+resep_in_train/
+unuse/
+
+# ===========================
+# Processed Dataset (optional)
+# ===========================
+# dataset_normalisasi_fix/
+
+# ===========================
+# Model Weights & Artifacts
+# ===========================
+*.pt
+*.onnx
+*.engine
+*.torchscript
+*.mlmodel
+*.tflite
+
+# ===========================
+# Archives
+# ===========================
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# ===========================
+# Images (large assets)
+# ===========================
+# Uncomment below if you don't want to track images
+# *.png
+# *.jpg
+# *.jpeg
+# *.gif
+# *.bmp
+
+# ===========================
+# OS Generated Files
+# ===========================
+.DS_Store
+Thumbs.db
+desktop.ini
+*.lnk
+
+# ===========================
+# Logs
+# ===========================
+*.log
+logs/
+
+# ===========================
+# Temporary Files
+# ===========================
+*.tmp
+*.temp
+*.bak
+
