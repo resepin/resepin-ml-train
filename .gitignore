@@ -43,10 +43,10 @@ env/
 runs/
 
 # ===========================
-# Raw Datasets (large files)
+# Large files tracked by DVC (DVC auto-adds .gitignore entries)
+# Note: Do NOT manually add DVC-tracked dirs here.
+# DVC creates .dvc pointer files that ARE committed to Git.
 # ===========================
-dataset_normalisasi_fix/
-raw dataset/
 resep_in_train/
 unuse/
 
@@ -92,6 +92,13 @@ desktop.ini
 *.lnk
 
 # ===========================
+# MLflow
+# ===========================
+mlruns/
+mlartifacts/
+mlflow.db
+
+# ===========================
 # Logs
 # ===========================
 *.log
@@ -104,3 +111,5 @@ logs/
 *.temp
 *.bak
 
+/dataset_normalisasi_fix
+/raw_dataset
