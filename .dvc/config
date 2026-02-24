@@ -1,0 +1,8 @@
+[core]
+    remote = gdrive
+['remote "localstorage"']
+    url = C:\dvc_storage
+['remote "gdrive"']
+    url = gdrive://1hMKReeEKfiWFHtGGCQ9MmkVBsKMZ8Hs9
+    gdrive_acknowledge_abuse = true
+    jobs = 2

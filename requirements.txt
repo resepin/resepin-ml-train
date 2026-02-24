@@ -1,0 +1,15 @@
+# Resep.in - Food Ingredient Detection
+# Core dependencies for training + versioning pipeline
+
+# ML Framework
+ultralytics>=8.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Experiment Tracking & Dataset Versioning
+mlflow>=2.10.0
+dvc>=3.0.0
+
+# Data Processing
+pandas>=2.0.0
+pyyaml>=6.0.0

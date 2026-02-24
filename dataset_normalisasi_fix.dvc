@@ -1,0 +1,6 @@
+outs:
+- md5: eb55dc9d8e49bbb1e993098e10872992.dir
+  size: 31969431175
+  nfiles: 95112
+  hash: md5
+  path: dataset_normalisasi_fix
