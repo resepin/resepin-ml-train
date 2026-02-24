@@ -1,43 +1,12 @@
-# Resep.in — Food Ingredient Detection with Full ML Versioning
+# Resep.in — Food Ingredient Detection (ML Training)
 
-A YOLOv8-based object detection system that identifies **53 food ingredients** from images, built for the Resep.in recipe recommendation platform. This repository includes a complete **ML versioning pipeline** using DVC (dataset versioning), MLflow (experiment tracking), and Google Drive (remote storage).
-
----
-
-## Table of Contents
-
-- [Project Overview](#project-overview)
-- [System Architecture](#system-architecture)
-- [Prerequisites](#prerequisites)
-- [Installation & Setup](#installation--setup)
-- [Dataset Setup (DVC Pull)](#dataset-setup-dvc-pull)
-- [Training a Model](#training-a-model)
-- [Viewing Experiment Results (MLflow)](#viewing-experiment-results-mlflow)
-- [Model Promotion](#model-promotion)
-- [Project Structure](#project-structure)
-- [Module Reference](#module-reference)
-- [Detected Classes (53)](#detected-classes-53)
-- [How DVC + MLflow + Google Drive Work Together](#how-dvc--mlflow--google-drive-work-together)
-- [Versioning Workflow Summary](#versioning-workflow-summary)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
-
----
-
-## Project Overview
-
-**Resep.in** detects food ingredients in photos so users can get recipe suggestions based on what they have. The ML side of the project works as follows:
-
-1. **5 Roboflow datasets** are merged and normalized into a single clean dataset of **~50,800 images** across **53 ingredient classes**.
-2. **YOLOv8 Nano** is trained on this dataset with full hyperparameter tracking.
-3. Every training run is **versioned end-to-end**: the exact dataset state, code commit, hyperparameters, and resulting metrics are all recorded.
-4. The best model is promoted to **"production"** via a model registry.
+This is the **machine learning training repository** for [Resep.in](https://github.com/resepin), a recipe recommendation app. It uses a **YOLOv8** object detection model to identify **53 food ingredients** from images, enabling the app to suggest recipes based on detected ingredients.
 
 | Item | Detail |
 |------|--------|
 | Model | YOLOv8n (Ultralytics) |
 | Classes | 53 food ingredients |
-| Dataset Size | ~50,800 images (~30 GB) |
+| Dataset | ~50,800 images (~30 GB) from 5 merged Roboflow sources |
 | Framework | PyTorch + Ultralytics |
 | Experiment Tracking | MLflow (local SQLite) |
 | Dataset Versioning | DVC → Google Drive |
@@ -45,384 +14,298 @@ A YOLOv8-based object detection system that identifies **53 food ingredients** f
 
 ---
 
-## System Architecture
+## Table of Contents
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                      YOUR MACHINE                            │
-│                                                              │
-│   Code (small files)              Data (large files ~30 GB)  │
-│   ┌──────────────────┐           ┌────────────────────────┐  │
-│   │ *.py, *.ipynb    │           │ dataset_normalisasi_fix │  │
-│   │ *.yaml, *.txt    │           │ raw_dataset/            │  │
-│   │ requirements.txt │           │ yolov8n.pt              │  │
-│   └───────┬──────────┘           └──────────┬─────────────┘  │
-│           │                                  │                │
-│      Git tracks                        DVC tracks             │
-│      (full files)                (.dvc pointer files only)    │
-│           │                                  │                │
-│           │               ┌──────────────────┘                │
-│           │               │                                   │
-│           │        ┌──────▼──────────────────────┐            │
-│           │        │        MLflow (mlflow.db)    │            │
-│           │        │  Every training run logs:    │            │
-│           │        │  • All hyperparameters       │            │
-│           │        │  • Epoch-by-epoch metrics    │            │
-│           │        │  • Model weights (best.pt)   │            │
-│           │        │  • Dataset hash & version    │            │
-│           │        │  • Git commit hash           │            │
-│           │        └──────────────────────────────┘            │
-│           │                                  │                │
-└───────────┼──────────────────────────────────┼────────────────┘
-            │                                  │
-       git push                           dvc push
-            │                                  │
-   ┌────────▼─────────┐            ┌───────────▼──────────────┐
-   │     GitHub        │            │     Google Drive          │
-   │  Code + .dvc      │            │  Actual images, labels,  │
-   │  pointer files    │            │  weights (~30 GB)         │
-   └──────────────────┘            └──────────────────────────┘
-```
-
-**Key insight:** Git stores code + tiny `.dvc` pointer files. DVC stores the actual large data on Google Drive. MLflow connects them by recording which dataset hash + code commit + hyperparameters produced which model.
+1. [Prerequisites](#1-prerequisites)
+2. [Installation](#2-installation)
+3. [Dataset Download](#3-dataset-download)
+4. [What `train_model.ipynb` Does](#4-what-train_modelipynb-does)
+5. [How to Run Training](#5-how-to-run-training)
+6. [Viewing Model Versioning (MLflow)](#6-viewing-model-versioning-mlflow)
+7. [Model Promotion](#7-model-promotion)
+8. [Project Structure](#8-project-structure)
+9. [Detected Classes (53)](#9-detected-classes-53)
+10. [How DVC, MLflow, and Google Drive Work Together](#10-how-dvc-mlflow-and-google-drive-work-together)
+11. [Troubleshooting](#11-troubleshooting)
 
 ---
 
-## Prerequisites
+## 1. Prerequisites
 
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| Python | 3.8+ (tested on 3.12) | |
-| Git | 2.30+ | For version control |
-| NVIDIA GPU | CUDA-capable | Required for training |
+Ensure the following are installed **before** starting:
+
+| Requirement | Version | Purpose |
+|-------------|---------|---------|
+| Python | 3.8+ (tested on 3.12) | Runtime |
+| Git | 2.30+ | Version control |
+| NVIDIA GPU | CUDA-capable | Training acceleration |
 | CUDA Toolkit | 11.8 or 12.x | Must match PyTorch build |
-| pip | Latest | `python -m pip install --upgrade pip` |
-| Google Account | — | For DVC remote (Google Drive) |
+| pip | Latest | Package installer |
+| Google Account | — | Download dataset from Google Drive |
+| Disk Space | ~35 GB free | Dataset + weights + outputs |
+| RAM | 16 GB+ | Data loading during training |
 
-> **RAM requirement:** At least 16 GB RAM recommended. The dataset is ~30 GB on disk.
+> **GPU check:** Run `nvidia-smi` in a terminal. If you see your GPU name and driver version, you are ready.
 
 ---
 
-## Installation & Setup
-
-### 1. Clone the repository
+## 2. Installation
 
 ```bash
+# 1. Clone the repository
 git clone https://github.com/resepin/resepin-ml-train.git
 cd resepin-ml-train
-```
 
-### 2. Create a virtual environment
-
-```bash
+# 2. Create and activate virtual environment
 python -m venv .venv
+.venv\Scripts\Activate.ps1          # Windows PowerShell
+# source .venv/bin/activate         # Linux / macOS
 
-# Windows (PowerShell)
-.venv\Scripts\Activate.ps1
-
-# Linux/macOS
-source .venv/bin/activate
-```
-
-### 3. Install dependencies
-
-```bash
-# Install all Python packages
+# 3. Install Python dependencies
 pip install -r requirements.txt
 
-# Install PyTorch with CUDA support (adjust cu118 to your CUDA version)
+# 4. Install PyTorch with CUDA (pick your CUDA version)
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
-# Install DVC Google Drive support
+# 5. Install DVC Google Drive support
 pip install dvc-gdrive
-```
 
-### 4. Verify GPU is available
-
-```python
-python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}, Device: {torch.cuda.get_device_name(0)}')"
-```
-
-Expected output:
-```
-CUDA available: True, Device: NVIDIA GeForce RTX XXXX
+# 6. Verify GPU
+python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}, GPU: {torch.cuda.get_device_name(0)}')"
+# Expected: CUDA: True, GPU: NVIDIA GeForce RTX XXXX
 ```
 
 ---
 
-## Dataset Setup (DVC Pull)
+## 3. Dataset Download
 
-The dataset (~30 GB) is **not stored in Git**. Instead, Git contains tiny `.dvc` pointer files that tell DVC where to download the data from Google Drive.
+The dataset (~30 GB) is stored on **Google Drive** and managed by **DVC**.
 
-### Download the dataset
+### Google Drive Link
+
+> **[https://drive.google.com/drive/folders/1hMKReeEKfiWFHtGGCQ9MmkVBsKMZ8Hs9](https://drive.google.com/drive/folders/1hMKReeEKfiWFHtGGCQ9MmkVBsKMZ8Hs9)**
+
+### Download via DVC (recommended)
 
 ```bash
-# This downloads all DVC-tracked files from Google Drive
 dvc pull
 ```
 
-On first run, DVC will open a browser for Google OAuth authentication. Sign in with a Google account that has access to the shared Drive folder.
-
-After `dvc pull` completes, you should see:
+On first run, DVC opens your browser for Google authentication. After completion:
 
 ```
-resep.in/
-├── dataset_normalisasi_fix/     ← ~50,800 images + labels (downloaded)
-│   ├── train/images/            ← 40,696 training images
-│   ├── valid/images/            ← 5,088 validation images
-│   ├── test/images/             ← 5,088 test images
-│   └── data.yaml                ← YOLO dataset config
-├── raw_dataset/                 ← 5 original Roboflow datasets (downloaded)
-└── yolov8n.pt                   ← Pre-trained YOLOv8 Nano weights (downloaded)
+dataset_normalisasi_fix/          ← ~30 GB
+├── data.yaml                     ← YOLO config (53 class names)
+├── manifest.json                 ← Dataset fingerprint (SHA-256 hash)
+├── train/images/                 ← 40,696 training images
+├── train/labels/                 ← YOLO-format labels
+├── valid/images/                 ← 5,088 validation images
+├── valid/labels/
+├── test/images/                  ← 5,088 test images
+└── test/labels/
+
+raw_dataset/                      ← 5 original Roboflow sources
+yolov8n.pt                        ← Pre-trained YOLOv8 Nano weights
 ```
 
-### Verify the dataset
+### Manual download (fallback)
+
+If `dvc pull` fails, download directly from the [Google Drive folder](https://drive.google.com/drive/folders/1hMKReeEKfiWFHtGGCQ9MmkVBsKMZ8Hs9) and place the contents in the project root matching the structure above.
+
+### Verify
 
 ```bash
-# Check that all DVC files are present
-dvc status
+dvc status    # Should show no changes
 ```
-
-If everything is up to date, the output will be empty or show `Data and calculation files are up to date.`
 
 ---
 
-## Training a Model
+## 4. What `train_model.ipynb` Does
 
-There are two ways to train: the **Jupyter notebook** (recommended for interactive use) or the **Python script** (recommended for reproducibility).
+The notebook has **10 cells** across 4 stages:
 
-### Option A: Jupyter Notebook (Recommended)
+### Stage 1 — Setup (Cells 1–3)
 
-Open `train_model.ipynb` and run all cells. The notebook:
+| Cell | Action |
+|------|--------|
+| 1 | Displays versioning overview (DVC, MLflow, Model Registry) |
+| 2 | Installs Ultralytics (YOLOv8 framework) |
+| 3 | Installs PyTorch with CUDA 11.8 support |
 
-1. Checks GPU availability
-2. Shows dataset statistics
-3. Trains YOLOv8n with MLflow tracking enabled
-4. Logs all metrics, hyperparameters, and artifacts automatically
+### Stage 2 — Verification (Cells 4–6)
 
-The training cell uses the versioned pipeline:
+| Cell | Action |
+|------|--------|
+| 4 | Imports YOLO, checks GPU availability, loads `yolov8n.pt` |
+| 5 | GPU diagnostics: Python version, PyTorch version, CUDA test, tensor allocation test |
+| 6 | Dataset statistics: counts images per split, prints totals and split ratios |
+
+### Stage 3 — Training (Cell 7)
+
+The core cell. Creates a `TrainingConfig` and calls `run_training(config)`, which automatically:
+
+1. Loads the **dataset manifest** (SHA-256 fingerprint of all labels)
+2. Starts an **MLflow run** and logs all hyperparameters
+3. **Trains YOLOv8** on the dataset (50 epochs, batch=16, AdamW, lr=0.001)
+4. Logs **epoch-by-epoch metrics** (mAP, precision, recall, loss) to MLflow
+5. Saves **model weights** (`best.pt`, `last.pt`) as MLflow artifacts
+6. Saves **training plots** (confusion matrix, PR curve, F1 curve)
+7. Creates `run_metadata.json` linking run ID → dataset hash → git commit
+
+### Stage 4 — Post-Training (Cells 8–10)
+
+| Cell | Action |
+|------|--------|
+| 8 | Instructions for MLflow UI and model promotion |
+| 9 | Promotes trained model to "production" (compares against current best on mAP50-95) |
+| 10 | Lists all registered model versions with their metrics and status |
+
+---
+
+## 5. How to Run Training
+
+### Option A: Notebook (recommended)
+
+Open `train_model.ipynb` and run all cells top to bottom. Training takes ~2–6 hours depending on GPU.
 
 ```python
 from train_versioned import run_training, TrainingConfig
 
 config = TrainingConfig(
     model_name="yolov8n.pt",
-    epochs=50,          # Total epochs
-    patience=3,         # Early stopping patience
-    batch=16,           # Batch size (reduce if GPU OOM)
-    imgsz=640,          # Image size
-    optimizer="AdamW",  # Optimizer
-    lr0=0.001,          # Initial learning rate
-    device="0",         # GPU device (0 = first GPU)
+    epochs=50,
+    patience=3,
+    batch=16,           # Reduce to 8 if GPU out of memory
+    imgsz=640,
+    optimizer="AdamW",
+    lr0=0.001,
+    device="0",         # "0" = first GPU
 )
 
 result = run_training(config)
 ```
 
-### Option B: Command Line
+### Option B: Command line
 
 ```bash
 python train_versioned.py
 ```
 
-This runs training with default settings (50 epochs, batch=16, AdamW optimizer).
-
-### Customizing Hyperparameters
-
-All hyperparameters are in the `TrainingConfig` dataclass. Key parameters:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `model_name` | `"yolov8n.pt"` | Base model (yolov8n/s/m/l/x) |
-| `epochs` | `50` | Maximum training epochs |
-| `patience` | `3` | Early stopping patience |
-| `batch` | `16` | Batch size (reduce for less VRAM) |
-| `imgsz` | `640` | Input image resolution |
-| `optimizer` | `"AdamW"` | Optimizer (SGD, Adam, AdamW) |
-| `lr0` | `0.001` | Initial learning rate |
-| `device` | `"0"` | GPU index (`"cpu"` for CPU) |
-
-### What happens during training
-
-When you call `run_training(config)`, the following happens automatically:
-
-1. **Dataset manifest** is loaded/generated — fingerprints the exact dataset state (SHA-256 hash of all labels)
-2. **MLflow run** starts — creates a tracked experiment run
-3. **All hyperparameters** are logged to MLflow
-4. **YOLO trains** the model using Ultralytics
-5. **Epoch-by-epoch metrics** (loss, mAP, precision, recall) are logged to MLflow
-6. **Model weights** (`best.pt`, `last.pt`) are saved as MLflow artifacts
-7. **Training plots** (confusion matrix, PR curve, loss curves) are saved as artifacts
-8. **Run metadata** JSON is saved linking everything together
-
-### Training output
+### Output
 
 Results are saved to `runs/detect/<run_name>/`:
 
 ```
 runs/detect/v1.0.0_yolov8n_20260224_143000/
-├── weights/
-│   ├── best.pt              ← Best model weights (use this for inference)
-│   └── last.pt              ← Last epoch weights
-├── results.csv              ← Epoch-by-epoch metrics
-├── confusion_matrix.png     ← Confusion matrix plot
-├── PR_curve.png             ← Precision-Recall curve
-├── F1_curve.png             ← F1 score curve
-├── results.png              ← Training curves plot
-├── args.yaml                ← Full YOLO config used
-└── run_metadata.json        ← MLflow run ID + dataset hash link
+├── weights/best.pt          ← Best model (use for deployment)
+├── weights/last.pt          ← Last epoch
+├── results.csv              ← Per-epoch metrics
+├── confusion_matrix.png
+├── PR_curve.png
+├── F1_curve.png
+├── results.png              ← Training curves
+├── args.yaml                ← Full config used
+└── run_metadata.json        ← MLflow run ID + dataset hash
 ```
 
 ---
 
-## Viewing Experiment Results (MLflow)
+## 6. Viewing Model Versioning (MLflow)
 
-MLflow provides a web dashboard to compare all your training runs.
+Every training run is automatically tracked. To view experiments, metrics, and model versions:
 
-### Launch the MLflow UI
+### Launch the dashboard
 
 ```bash
 mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000
 ```
 
-Then open [http://localhost:5000](http://localhost:5000) in your browser.
+Open **http://localhost:5000** in your browser.
 
-### What you can see
+### What you see
 
-- **Runs table** — Every training run with all hyperparameters and final metrics side-by-side
-- **Metric charts** — Epoch-by-epoch plots of loss, mAP, precision, recall
-- **Artifact browser** — Download model weights, training plots, and configs from any run
-- **Run comparison** — Select multiple runs and compare their metrics visually
-- **Tags** — Each run is tagged with `dataset_version`, `dataset_hash`, `model_arch`, `git_commit`
+| Tab | Description |
+|-----|-------------|
+| **Runs table** | All training runs with hyperparameters and final metrics (sortable) |
+| **Metric charts** | Click a run → epoch-by-epoch plots of loss, mAP, precision, recall |
+| **Artifacts** | Browse/download model weights, confusion matrix, PR curves per run |
+| **Compare** | Select 2+ runs → side-by-side metric comparison |
+| **Model Registry** | Registered models with "production" / "staging" labels |
+| **Tags** | Each run tagged with `dataset_version`, `dataset_hash`, `git_commit`, `model_arch` |
 
-### Key metrics tracked
+### Metrics tracked per run
 
 | Metric | Description |
 |--------|-------------|
-| `mAP50` | Mean Average Precision at IoU=0.50 (primary metric) |
-| `mAP50_95` | Mean Average Precision at IoU=0.50:0.95 |
-| `precision` | Detection precision |
-| `recall` | Detection recall |
+| `mAP50` | Mean Average Precision @ IoU=0.50 **(primary)** |
+| `mAP50_95` | Mean Average Precision @ IoU=0.50:0.95 |
+| `precision` | Fraction of correct detections |
+| `recall` | Fraction of actual objects detected |
 | `train_box_loss` | Training bounding box loss |
 | `train_cls_loss` | Training classification loss |
 | `val_box_loss` | Validation bounding box loss |
 | `val_cls_loss` | Validation classification loss |
 
----
-
-## Model Promotion
-
-After training, you can register and promote the best model using the Model Registry.
-
-### From the notebook
-
-The `train_model.ipynb` notebook has cells for model promotion:
-
-```python
-from promote_model import promote_model, list_models
-
-# Promote the best model to production (compares against current production)
-promoted = promote_model(
-    run_id=result["run_id"],     # From training result
-    metric_name="mAP50",         # Compare on mAP50
-    min_threshold=0.3,           # Minimum mAP50 to consider
-)
-
-# List all registered model versions
-list_models()
-```
-
-### From the command line
+### Quick check (without UI)
 
 ```bash
-# List all registered models
-python promote_model.py list
-
-# Promote a model by its MLflow run ID
-python promote_model.py promote <run_id> 0.3
-
-# Just register without promoting
-python promote_model.py register <run_id>
+python -c "from mlflow_config import setup_mlflow; setup_mlflow()"
+# Expected: MLflow experiment: resep-in-food-detection (ID: ...)
 ```
-
-### How promotion works
-
-1. The candidate model's `mAP50` is compared against the current `production` model
-2. If the candidate is better (higher mAP50), it becomes the new `production` model
-3. If not, it is registered as `staging` for reference
-4. If no production model exists yet, the first registered model becomes production
 
 ---
 
-## Project Structure
+## 7. Model Promotion
+
+### From notebook (Cell 9)
+
+```python
+from promote_model import promote_model
+promote_model(run_id=result['run_id'], metric_name="mAP50_95", min_threshold=0.15)
+```
+
+### From command line
+
+```bash
+python promote_model.py list                     # List all versions
+python promote_model.py promote <run_id> 0.15    # Promote if better
+```
+
+**How it works:** Candidate metric is compared against the current production model. Higher → promoted to production. Lower → saved as staging.
+
+---
+
+## 8. Project Structure
 
 ```
-resep.in/
+resepin-ml-train/
+├── train_model.ipynb              # Training notebook (start here)
+├── dataset.ipynb                  # Dataset merge/preprocessing notebook
 │
-├── train_model.ipynb              # Main training notebook (start here)
-├── dataset.ipynb                  # Dataset preprocessing/merging notebook
-├── train_versioned.py             # Versioned training with MLflow integration
-├── version_config.py              # Centralized project config & constants
-├── dataset_manifest.py            # Dataset fingerprinting (SHA-256 hash)
-├── mlflow_config.py               # MLflow setup & helpers
-├── log_results.py                 # YOLO results parser → MLflow logger
-├── promote_model.py               # Model registry & promotion logic
-├── dataset_pipeline.py            # Dataset merge/clean/normalize pipeline
+├── train_versioned.py             # Training engine with MLflow integration
+├── version_config.py              # Paths, class list, dataset version
+├── dataset_manifest.py            # Dataset SHA-256 fingerprint generator
+├── mlflow_config.py               # MLflow SQLite setup and helpers
+├── log_results.py                 # YOLO results.csv → MLflow logger
+├── promote_model.py               # Model registry: register, promote, list
+├── dataset_pipeline.py            # Merges 5 Roboflow datasets → clean dataset
 ├── requirements.txt               # Python dependencies
-├── yolov8n.pt                     # Pre-trained YOLOv8 Nano (DVC-tracked)
-├── yolov8n.pt.dvc                 # DVC pointer for yolov8n.pt
 │
-├── dataset_normalisasi_fix/       # Final clean dataset (DVC-tracked, ~30 GB)
-│   ├── data.yaml                  # YOLO dataset configuration (53 classes)
-│   ├── manifest.json              # Dataset fingerprint (version + hash)
-│   ├── train/images/              # 40,696 training images
-│   ├── train/labels/              # Training labels (YOLO format)
-│   ├── valid/images/              # 5,088 validation images
-│   ├── valid/labels/              # Validation labels
-│   ├── test/images/               # 5,088 test images
-│   └── test/labels/               # Test labels
-├── dataset_normalisasi_fix.dvc    # DVC pointer for the dataset
+├── dataset_normalisasi_fix/       # [DVC] Final dataset (~30 GB)
+├── dataset_normalisasi_fix.dvc    # DVC pointer
+├── raw_dataset/                   # [DVC] 5 original Roboflow datasets
+├── raw_dataset.dvc                # DVC pointer
+├── yolov8n.pt                     # [DVC] Pre-trained weights
+├── yolov8n.pt.dvc                 # DVC pointer
 │
-├── raw_dataset/                   # 5 original Roboflow source datasets
-│   ├── Bahan-Makanan-Rumah-Tangga-1/
-│   ├── Food-Ingredient-Detection-1/
-│   ├── food-ingredients-1/
-│   ├── Indonesian-Food-1/
-│   └── Recipe-Recommendation-System-2-1/
-├── raw_dataset.dvc                # DVC pointer for raw datasets
-│
-├── runs/detect/                   # YOLO training outputs
-│   └── training_results/          # Previous training run
-│
-├── mlflow.db                      # MLflow experiment database (SQLite)
-├── .dvc/                          # DVC configuration
-│   └── config                     # DVC remote settings (Google Drive)
-├── .gitignore                     # Git ignore rules
-│
-├── train_model_medium/            # YOLOv8m training experiments
-│   └── train_model_medium.ipynb
-└── unuse/                         # Archived/unused experiments
+├── runs/detect/                   # Training outputs
+├── mlflow.db                      # MLflow experiment database
+└── .dvc/config                    # DVC remote config (Google Drive)
 ```
 
 ---
 
-## Module Reference
-
-| Module | Purpose |
-|--------|---------|
-| `version_config.py` | Central configuration: project paths, dataset version (`1.0.0`), 53 class names, source dataset list, pipeline step names |
-| `dataset_manifest.py` | Generates `manifest.json` with SHA-256 hash of all labels, split counts, class list. Ensures dataset traceability |
-| `mlflow_config.py` | Sets up MLflow with SQLite backend (`mlflow.db`), provides `setup_mlflow()`, `start_run()`, git hash helpers |
-| `log_results.py` | Parses YOLO `results.csv`, logs epoch-by-epoch metrics to MLflow, uploads weights/plots/configs as artifacts |
-| `train_versioned.py` | `TrainingConfig` dataclass (all hyperparameters) + `run_training()` function that wraps YOLO training with full MLflow integration |
-| `dataset_pipeline.py` | Merges 5 Roboflow datasets, normalizes class names (Indonesian → English), cleans underrepresented classes, generates `data.yaml` |
-| `promote_model.py` | Model Registry: `register_model()`, `promote_model()` (compares candidate vs production on mAP50), `list_models()` |
-
----
-
-## Detected Classes (53)
-
-The model detects 53 food ingredients organized into the following categories:
+## 9. Detected Classes (53)
 
 | Category | Classes |
 |----------|---------|
@@ -436,138 +319,63 @@ The model detects 53 food ingredients organized into the following categories:
 
 ---
 
-## How DVC + MLflow + Google Drive Work Together
-
-### The Problem
-
-This project has **two types of files**:
-1. **Code** (small, text-based): Python scripts, notebooks, YAML configs — ~KB each
-2. **Data** (large, binary): 50,800 images, labels, model weights — ~30 GB total
-
-Git handles code well but cannot store 30 GB of images efficiently. The solution uses three tools, each handling a specific layer:
-
-### Layer 1: Git + GitHub → Code Versioning
-
-- Git tracks **all source code**: `.py`, `.ipynb`, `.yaml`, `.txt`, `requirements.txt`
-- Git also tracks **`.dvc` pointer files** — these are tiny (~200 bytes) files that contain a hash pointing to the actual data
-- GitHub hosts the remote repository
-
-### Layer 2: DVC + Google Drive → Data Versioning
-
-- **DVC (Data Version Control)** works alongside Git specifically for large files
-- When you run `dvc add dataset_normalisasi_fix/`, DVC:
-  1. Computes a hash of every file in the folder
-  2. Creates `dataset_normalisasi_fix.dvc` (a tiny pointer file with the hash)
-  3. Adds the actual folder to `.gitignore` (Git won't track it)
-- `dvc push` uploads the actual data to **Google Drive** (our remote storage)
-- `dvc pull` downloads the data matching the hash in the `.dvc` pointer file
-- **Result:** Git only stores the pointer (tiny), Google Drive stores the data (large)
-
-### Layer 3: MLflow → Experiment Tracking
-
-- MLflow records every training run in a local **SQLite database** (`mlflow.db`)
-- Each run logs:
-  - All hyperparameters (learning rate, batch size, epochs, augmentations, etc.)
-  - Epoch-by-epoch metrics (loss, mAP50, mAP50-95, precision, recall)
-  - Artifacts (best.pt weights, confusion matrix, PR curve, loss plots)
-  - Tags: `dataset_version`, `dataset_hash`, `git_commit`, `model_arch`
-- The **Model Registry** lets you tag model versions as `production` or `staging`
-
-### How They Connect
+## 10. How DVC, MLflow, and Google Drive Work Together
 
 ```
-Git Commit ──────────┐
-(code version)       │
-                     ├──→ MLflow Run ──→ Metrics + Model
-Dataset Hash ────────┘       │
-(from DVC manifest)          │
-                             ▼
-                     Model Registry
-                     (production / staging)
+┌──────────────────────────────────────────────────────┐
+│                   YOUR MACHINE                        │
+│                                                       │
+│   Code (.py, .ipynb)        Data (images, weights)    │
+│         │                          │                  │
+│    Git tracks                DVC tracks               │
+│    full files                .dvc pointers             │
+│         │                          │                  │
+│         │       ┌──────────────────┘                  │
+│         │       │                                     │
+│         │  ┌────▼───────────────────────┐             │
+│         │  │     MLflow (mlflow.db)      │             │
+│         │  │  • Hyperparameters          │             │
+│         │  │  • Metrics (per epoch)      │             │
+│         │  │  • Model weights            │             │
+│         │  │  • Dataset hash + git commit│             │
+│         │  └────────────────────────────┘             │
+│         │                          │                  │
+└─────────┼──────────────────────────┼──────────────────┘
+          │                          │
+     git push                   dvc push
+          │                          │
+  ┌───────▼──────┐       ┌──────────▼─────────┐
+  │   GitHub      │       │   Google Drive      │
+  │ Code + .dvc   │       │ Images, labels,     │
+  │ pointers      │       │ weights (~30 GB)    │
+  └──────────────┘       └────────────────────┘
 ```
 
-Every MLflow run records the **git commit** (which code was used) and the **dataset hash** (which data was used). This means you can always trace back:
+1. **Git + GitHub** — stores code and tiny `.dvc` pointer files (~200 bytes each)
+2. **DVC + Google Drive** — stores actual large files. `dvc add` creates pointers, `dvc push` uploads, `dvc pull` downloads
+3. **MLflow** — records every training run in `mlflow.db`: hyperparameters, epoch metrics, model weights, dataset hash, git commit
 
-> "Model v3 was trained with commit `a1b2c3d` on dataset v1.0.0 (hash `848bb219...`) with batch=16, lr=0.001, and achieved mAP50=0.72"
-
-### Reproducibility Chain
-
-When someone wants to reproduce your exact results:
+**Reproducibility:**
 
 ```bash
-git checkout <commit_hash>   # Get the exact code version
-dvc checkout                 # Get the exact dataset version matching that commit
-python train_versioned.py    # Train with the same hyperparameters (logged in MLflow)
+git checkout <commit>     # Exact code version
+dvc checkout              # Exact dataset version
+python train_versioned.py # Same hyperparameters → reproducible results
 ```
 
 ---
 
-## Versioning Workflow Summary
-
-### When you change the dataset
-
-```bash
-# 1. Make your changes to dataset_normalisasi_fix/
-# 2. Update version in version_config.py
-# 3. Re-track with DVC
-dvc add dataset_normalisasi_fix
-
-# 4. Regenerate manifest
-python -c "from dataset_manifest import generate_manifest; generate_manifest()"
-
-# 5. Commit the updated pointer + manifest
-git add dataset_normalisasi_fix.dvc dataset_normalisasi_fix/manifest.json version_config.py
-git commit -m "dataset: bump to v1.1.0 - added new images"
-
-# 6. Push data and code
-dvc push        # Upload new data to Google Drive
-git push        # Push code + pointer to GitHub
-```
-
-### When you retrain
-
-```bash
-# 1. Train (MLflow logs everything automatically)
-python train_versioned.py
-
-# 2. Check results in MLflow UI
-mlflow ui --backend-store-uri sqlite:///mlflow.db
-
-# 3. Promote the best model
-python promote_model.py promote <run_id> 0.3
-
-# 4. Commit any new outputs
-git add .
-git commit -m "training: v1.0.0 yolov8n mAP50=0.72"
-git push
-```
-
-### When a collaborator joins
-
-```bash
-git clone https://github.com/resepin/resepin-ml-train.git
-cd resepin-ml-train
-python -m venv .venv && .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install dvc-gdrive
-dvc pull                  # Downloads ~30 GB dataset from Google Drive
-# Open train_model.ipynb and run all cells
-```
-
----
-
-## Troubleshooting
+## 11. Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
-| `dvc pull` asks for authentication | Sign in with a Google account that has access to the shared Drive folder |
-| `CUDA out of memory` | Reduce `batch` size (try 8 or 4) in `TrainingConfig` |
-| `dvc push` SSL errors | Retry — DVC resumes automatically. Run `dvc push -j 1` to reduce parallel jobs |
+| `dvc pull` asks for authentication | Sign in with a Google account that has access to the Drive folder |
+| `CUDA out of memory` | Reduce `batch` to 8 or 4 in `TrainingConfig` |
+| `dvc push` SSL errors | Retry with `dvc push -j 1` (DVC resumes automatically) |
 | `mlflow ui` won't start | Ensure you're in the project root and `mlflow.db` exists |
 | `No module named 'ultralytics'` | Run `pip install -r requirements.txt` |
-| `git push` rejected | Run `git pull --rebase` first, then `git push` |
-| `.dvc` files show changes | Run `dvc checkout` to sync data with the current pointer files |
+| `CUDA: False` | PyTorch CUDA version mismatch. Check `nvidia-smi`, reinstall with correct `--index-url` |
+| `git push` rejected | Run `git pull --rebase` first |
 
 ---
 
