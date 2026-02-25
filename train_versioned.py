@@ -222,6 +222,11 @@ def run_training(config: TrainingConfig | None = None) -> dict:
         yolo_params = config.to_yolo_params()
         result = model.train(**yolo_params)
 
+        # YOLO's built-in MLflow callback ends the run after training.
+        # Re-activate it so we can continue logging custom metrics.
+        if mlflow.active_run() is None:
+            mlflow.start_run(run_id=run_id)
+
         # 6. Determine results directory
         results_dir = os.path.join(config.project, run_name)
         if not os.path.exists(results_dir):
